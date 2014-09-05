@@ -14,7 +14,7 @@
 #include <cmath>
 #include <vector>
 
-int EVT_NUM=1000;
+int EVT_NUM=10;
 double R_SPHERE=650;
 double N_REF=1.53;
 double C_VAC=29.9792458;
@@ -254,15 +254,40 @@ int ChooseNextDigit(Double_t& xpos, Double_t& ypos, Double_t& zpos, Double_t& ti
 int ChooseNextQuadruple(Double_t& x0, Double_t& y0, Double_t& z0, Double_t& t0, Double_t& x1, Double_t& y1, Double_t& z1, Double_t& t1, Double_t& x2, Double_t& y2, Double_t& z2, Double_t& t2, Double_t& x3, Double_t& y3, Double_t& z3, Double_t& t3)
 {
   int code=0; // 0 -if OK, 1 -if failed to chose 4 different digits 
-  int digit1=0;
-  int digit2=0;
-  int digit3=0;
-  int digit4=0;
-  digit1 = ChooseNextDigit(x0,y0,z0,t0);
-//  while (d)
-  int d2 = ChooseNextDigit(x1,y1,z1,t1);
-  int d3 = ChooseNextDigit(x2,y2,z2,t2);
-  int d4 = ChooseNextDigit(x3,y3,z3,t3);
+  int digit0=0;
+  int digit1=-1;
+  int digit2=-2;
+  int digit3=-3;
+  int counter1=0;
+  int counter2=0;
+  int counter3=0;
+  digit0 = ChooseNextDigit(x0,y0,z0,t0);
+//  digit1 = ChooseNextDigit(x1,y1,z1,t1);
+//  digit2 = ChooseNextDigit(x2,y2,z2,t2);
+//  digit3 = ChooseNextDigit(x3,y3,z3,t3);
+
+//check that selected digits for the quadruple are not identical
+//if they are after 100 attempts then be it, the quadruple will not
+//be used later
+  while( (digit1<0 || digit1==digit0) && counter1<100)
+  {
+    digit1 = ChooseNextDigit(x1,y1,z1,t1);
+    counter1++;
+  }
+
+  while( (digit2<0 || digit2==digit0 || digit2==digit1) && counter2<100)
+  {
+    digit2 = ChooseNextDigit(x2,y2,z2,t2);
+    counter2++;
+  }
+
+  while( (digit3<0 || digit3==digit0 || digit3==digit1 || digit3==digit2) && counter3<100)
+  {
+    digit3 = ChooseNextDigit(x3,y3,z3,t3);
+    counter3++;
+  }
+
+  if(counter1>=100 || counter2>=100 || counter3>=100) code=1;
 
   return code;
 }
