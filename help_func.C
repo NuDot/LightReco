@@ -1,3 +1,6 @@
+// These functions are needed for the 1st round of reconstruction to
+// get an estimate on vertex posision. 
+
 int TowerIPhi(double phi)
 {
   double two_pi = 2.0*3.1415926535;
@@ -10,6 +13,7 @@ int TowerITheta(double theta)
   return int((1+TMath::Cos(theta))*NTHETA/2.);
 }
 
+// Divides sphere in NPHIxNTHETA segments and takes 1st photon from each segment
 int MarkEarlyPhotons(int N, float* x, float* y, float* z, float* t, int* process, int* pe, bool* ph_vec)
 {
 //Fill in iphi-itheta towers with photon number (only photons passing QE&P cuts)
