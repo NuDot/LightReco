@@ -1,3 +1,11 @@
+/* Andrey Elagin, September 5, 2014
+ * LightReco is a light-weight standalone vertex and (in the near future) directionality
+ * reconsruction code for 0vbb-decay events in liquid scintillator. The code is based on
+ * quadruplet-based vertex-finding method by Michael Smy. Many lines are directly copied
+ * from WCSimAnalysis package.
+ *
+ * See README.txt for instructions on how to use and notes on significant updates.
+ */
 #include "TTree.h"
 #include "TFile.h"
 #include "TH1F.h"
@@ -14,37 +22,39 @@
 #include <cmath>
 #include <vector>
 
-int EVT_NUM=10;
-double R_SPHERE=650;
-double N_REF=1.53;
-double C_VAC=29.9792458;
-int NSeedsTarget=400;
-double TSIGMA=0.5;
-static const int NMAX_PHOT=100000;
+int EVT_NUM=10; //controls maximum number of events to be processed
+double R_SPHERE=650; //sphere diameter [cm]
+double N_REF=1.53; //average index of refraction
+double C_VAC=29.9792458; //speed of light in vacuum [cm/ns]
+int NSeedsTarget=400; //number of quadruplets
+double TSIGMA=0.5; //total time spread (including detector TTS chromatic dispersions)
+static const int NMAX_PHOT=100000; //
 static const int NPHI=12;
 static const int NTHETA=12;
 
 #include "help_func.C"
 
-double fBaseFOM=100.0;
+double fBaseFOM=100.0; //Figure of merit. Borrowed from WCSim: the higher it is the better
 double meanTime=0.;
 double seedTime=0.;
 
 TRandom RND;
 
+// store seed vertex calculated from quaruplets
 vector<double> vSeedVtxX;
 vector<double> vSeedVtxY;
 vector<double> vSeedVtxZ;
 vector<double> vSeedVtxTime;
 vector<int> vSeedDigitList;
 
+// store photon hits after filtering cuts (e.g. position dependent cut to increase cherenkov fraction)
 vector<double> fDigitX;
 vector<double> fDigitY;
 vector<double> fDigitZ;
 vector<double> fDigitT;
 vector<double> fDigitQ;
 vector<double> fDigitPE;
-vector<double> fDelta;
+vector<double> fDelta; // time residual
 
 int fNDigits=0;
 int fThisDigit=0;
@@ -53,12 +63,13 @@ int fCounter=0;
 int fMinTime=0;
 
 
+//this is for diagnostics, not finished yet
 TFile fFOM("fFOM.root","recreate");
 TH1F* hT = new TH1F("hT","hT",100,-10,10);
 TH1F* hDT0 = new TH1F("hDT0","hDT0",100,-5,5);
 TH1F* hDT = new TH1F("hDT","hDT",100,-5,5);
 
-
+// This function solves system of 4 equations with 4 unknowns to find the seed vertex for each quadruple
 int FindVertex(Double_t x0, Double_t y0, Double_t z0, Double_t t0, Double_t x1, Double_t y1, Double_t z1, Double_t t1, Double_t x2, Double_t y2, Double_t z2, Double_t t2, Double_t x3, Double_t y3, Double_t z3, Double_t t3, Double_t& vxm, Double_t& vym, Double_t& vzm, Double_t& vtm, Double_t& vxp, Double_t& vyp, Double_t& vzp, Double_t& vtp)
 {
   vxm = -99999.9;
@@ -210,7 +221,7 @@ int FindVertex(Double_t x0, Double_t y0, Double_t z0, Double_t t0, Double_t x1, 
   return 0;
 }
 
-
+// Randomly select photon hit (x,y,z,t) for a quadruple
 int ChooseNextDigit(Double_t& xpos, Double_t& ypos, Double_t& zpos, Double_t& time)
 {
   xpos=0; ypos=0; zpos=0; time=0;
@@ -251,6 +262,7 @@ int ChooseNextDigit(Double_t& xpos, Double_t& ypos, Double_t& zpos, Double_t& ti
   return fThisDigit;
 }
 
+// Make a quadruple
 int ChooseNextQuadruple(Double_t& x0, Double_t& y0, Double_t& z0, Double_t& t0, Double_t& x1, Double_t& y1, Double_t& z1, Double_t& t1, Double_t& x2, Double_t& y2, Double_t& z2, Double_t& t2, Double_t& x3, Double_t& y3, Double_t& z3, Double_t& t3)
 {
   int code=0; // 0 -if OK, 1 -if failed to chose 4 different digits 
@@ -292,6 +304,7 @@ int ChooseNextQuadruple(Double_t& x0, Double_t& y0, Double_t& z0, Double_t& t0, 
   return code;
 }
 
+// Calculate NSeedsTarget verticies
 int CalcVertexSeeds()
 {
   // reset list of seeds
@@ -403,7 +416,8 @@ int CalcVertexSeeds()
   return 0;
 }
 
-//make sure fDelta has been filled before calling this function
+// Calculates FOM by looking at time residuals
+// make sure fDelta has been filled before calling this function
 int TimePropertiesLnL(double & vtx_time, double & fom)
 {
   double A = 1.0 / ( 2.0*TSIGMA*sqrt(0.5*TMath::Pi()) );
@@ -433,7 +447,7 @@ int TimePropertiesLnL(double & vtx_time, double & fom)
   return 0;
 }
 
-
+// To be used by Minuit
 static void vertex_time_lnl(Int_t&, Double_t*, Double_t& f, Double_t* par, Int_t)
 {
   Double_t vtx_time = par[0];
@@ -477,6 +491,8 @@ void FitPointTimePropertiesLnL(Double_t& fit_time, Double_t& fom)
   return;
 }
 
+// Out of all seed verticies selects the one with the best FOM
+// Important: the fit time is discarded and solution from FindVertex(...) is used
 int SelectBestSeed(int evt_num)
 {
   std::ostringstream oss;
@@ -541,6 +557,7 @@ int SelectBestSeed(int evt_num)
   return bestSeed;
 }
 
+// Main function. Loops over input TTree, filters photon hits and calls everything above
 int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRecoName="f.root")
 {
   //define reconstrution output here
