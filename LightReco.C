@@ -19,10 +19,12 @@
 
 #include <iostream>
 #include <sstream>
+#include <fstream>
 #include <cmath>
 #include <vector>
+#include <map>
 
-int EVT_NUM=10; //controls maximum number of events to be processed
+int EVT_NUM=100; //controls maximum number of events to be processed
 double R_SPHERE=650; //sphere diameter [cm]
 double N_REF=1.53; //average index of refraction
 double C_VAC=29.9792458; //speed of light in vacuum [cm/ns]
@@ -31,6 +33,9 @@ double TSIGMA=0.5; //total time spread (including detector TTS chromatic dispers
 static const int NMAX_PHOT=100000; //
 static const int NPHI=12;
 static const int NTHETA=12;
+
+
+map<int, double> INDEX;
 
 #include "help_func.C"
 
@@ -54,6 +59,8 @@ vector<double> fDigitZ;
 vector<double> fDigitT;
 vector<double> fDigitQ;
 vector<double> fDigitPE;
+vector<double> fDigitW;
+vector<double> fDigitV;
 vector<double> fDelta; // time residual
 
 int fNDigits=0;
@@ -61,6 +68,7 @@ int fThisDigit=0;
 int fLastEntry=0;
 int fCounter=0;
 int fMinTime=0;
+
 
 
 //this is for diagnostics, not finished yet
@@ -524,8 +532,12 @@ int SelectBestSeed(int evt_num)
       Double_t time0 = fDigitT[idigit] - 0; //this is what was done in WCSim for the JINST paper
       Double_t time = fDigitT[idigit] - vSeedVtxTime[i];
     
-      double fPointResidual0 = time0 - ds/(C_VAC/N_REF);
-      double fPointResidual = time - ds/(C_VAC/N_REF);
+//      double fPointResidual0 = time0 - ds/(C_VAC/N_REF);
+//      double fPointResidual = time - ds/(C_VAC/N_REF);
+// TEMP test: use true velocity:
+      double fPointResidual0 = time0 - ds/fDigitV[idigit];
+      double fPointResidual = time - ds/fDigitV[idigit];
+//      cout<<"Lambda = "<<fDigitW[idigit]<<"   index_ref = "<<C_VAC/fDigitV[idigit]<<endl;
       hdt0->Fill(fPointResidual0);
       hdt->Fill(fPointResidual);
 
@@ -638,6 +650,7 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
   Hits_Tree->SetBranchAddress("process", process_v, &process_b);
   //===============
 
+  FillIndex("../data/IndexOfRefraction_KamLAND.txt");
 
   //ready to loop over input and create digits
   int N_Entries_Hits_Tree = Hits_Tree->GetEntries();
@@ -650,6 +663,8 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
     fDigitY.clear();
     fDigitZ.clear();
     fDigitT.clear();
+    fDigitW.clear();
+    fDigitV.clear();
     fDigitQ.clear();
     fDigitPE.clear();
     vSeedDigitList.clear();
@@ -698,6 +713,9 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
         fDigitZ.push_back(z_hit_v[iphot]/10.);//!Sphere1
 	fDigitT.push_back(PE_time_v[iphot]);// - min_PE_time; //!Sphere1
 	fDigitQ.push_back(1);
+        fDigitW.push_back(photon_wavelength_v[iphot]);
+//	int lambda = (int)
+	fDigitV.push_back(C_VAC/INDEX[(int)photon_wavelength_v[iphot]]);
 	vSeedDigitList.push_back(fThisDigit);
         fThisDigit++;
     }

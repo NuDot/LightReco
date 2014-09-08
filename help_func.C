@@ -1,6 +1,10 @@
 // These functions are needed for the 1st round of reconstruction to
 // get an estimate on vertex posision. 
 
+//#include <map>
+
+//map<int, double> INDEX;
+
 int TowerIPhi(double phi)
 {
   double two_pi = 2.0*3.1415926535;
@@ -46,5 +50,28 @@ int MarkEarlyPhotons(int N, float* x, float* y, float* z, float* t, int* process
 
 
   return 0;
+}
+
+int FillIndex(char* fName)
+{
+  int wl;
+  double n_ref;
+  ifstream infile(fName);
+  while(infile>>wl>>n_ref)
+  {
+    cout<<"nref = "<<n_ref<<endl;
+    INDEX[wl] = n_ref;
+  }
+  for(map<int, double>::iterator m=INDEX.begin(); m!=INDEX.end(); ++m)
+  {
+    cout<<m->first<<"   "<<m->second<<endl;
+  }
+  return 0;
+}
+
+double Velocity(double lambda)
+{
+  double v=0.;
+  return v;
 }
 
