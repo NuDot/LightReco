@@ -23,8 +23,9 @@
 #include <cmath>
 #include <vector>
 #include <map>
+#include <iterator>
 
-int EVT_NUM=100; //controls maximum number of events to be processed
+int EVT_NUM=1000; //controls maximum number of events to be processed
 double R_SPHERE=650; //sphere diameter [cm]
 double N_REF=1.53; //average index of refraction
 double C_VAC=29.9792458; //speed of light in vacuum [cm/ns]
@@ -36,6 +37,7 @@ static const int NTHETA=12;
 
 
 map<int, double> INDEX;
+map<int, double> INDEX_GR;
 
 #include "help_func.C"
 
@@ -61,6 +63,9 @@ vector<double> fDigitQ;
 vector<double> fDigitPE;
 vector<double> fDigitW;
 vector<double> fDigitV;
+vector<double> fDigitVgr;
+vector<double> fDigitN;
+vector<double> fDigitNgr;
 vector<double> fDelta; // time residual
 
 int fNDigits=0;
@@ -532,11 +537,11 @@ int SelectBestSeed(int evt_num)
       Double_t time0 = fDigitT[idigit] - 0; //this is what was done in WCSim for the JINST paper
       Double_t time = fDigitT[idigit] - vSeedVtxTime[i];
     
-//      double fPointResidual0 = time0 - ds/(C_VAC/N_REF);
-//      double fPointResidual = time - ds/(C_VAC/N_REF);
+      double fPointResidual0 = time0 - ds/(C_VAC/N_REF);
+      double fPointResidual = time - ds/(C_VAC/N_REF);
 // TEMP test: use true velocity:
-      double fPointResidual0 = time0 - ds/fDigitV[idigit];
-      double fPointResidual = time - ds/fDigitV[idigit];
+//      double fPointResidual0 = time0 - ds/fDigitVgr[idigit];
+//      double fPointResidual = time - ds/fDigitVgr[idigit];
 //      cout<<"Lambda = "<<fDigitW[idigit]<<"   index_ref = "<<C_VAC/fDigitV[idigit]<<endl;
       hdt0->Fill(fPointResidual0);
       hdt->Fill(fPointResidual);
@@ -574,15 +579,27 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
 {
   //define reconstrution output here
   TFile f_out(fOutputName,"recreate");
+  int evt_num=0;
   double recoVtxX;
   double recoVtxY;
   double recoVtxZ;
   double recoVtxTime;
+  int Nphot;
+  float maxalpha[100000];
+  float true_alpha[100000];
+  float minS1[100000];
+  float S2[100000];
   TTree* reco_out_ntuple = new TTree("ntuple","ntuple");
+  reco_out_ntuple->Branch("evt_num",&evt_num,"evt_num/I");
   reco_out_ntuple->Branch("recoVtxX",&recoVtxX,"recoVtxX/D");
   reco_out_ntuple->Branch("recoVtxY",&recoVtxY,"recoVtxY/D");
   reco_out_ntuple->Branch("recoVtxZ",&recoVtxZ,"recoVtxZ/D");
   reco_out_ntuple->Branch("recoVtxTime",&recoVtxTime,"recoVtxTime/D");
+  reco_out_ntuple->Branch("Nphot",&Nphot,"Nphot/I");
+  reco_out_ntuple->Branch("maxalpha",maxalpha,"maxalpha[Nphot]/F");
+  reco_out_ntuple->Branch("true_alpha",true_alpha,"true_alpha[Nphot]/F");
+  reco_out_ntuple->Branch("minS1",minS1,"minS1[Nphot]/F");
+  reco_out_ntuple->Branch("S2",S2,"S2[Nphot]/F");
   //====================
   
   //results of the first itteration of reco is defined here
@@ -665,8 +682,11 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
     fDigitT.clear();
     fDigitW.clear();
     fDigitV.clear();
+    fDigitVgr.clear();
     fDigitQ.clear();
     fDigitPE.clear();
+    fDigitN.clear();
+    fDigitNgr.clear();
     vSeedDigitList.clear();
 
     int currentEvent=i;
@@ -678,8 +698,8 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
     bool early_ph_vec[NMAX_PHOT];
     if(fRecoIt==1)
     {
-      for(int i=0;i!=N_phot_v;++i)
-        early_ph_vec[i]=0;
+      for(int ii=0;ii!=N_phot_v;++ii)
+        early_ph_vec[ii]=0;
       MarkEarlyPhotons(N_phot_v,x_hit_v,y_hit_v,z_hit_v,PE_time_v,process_v,PE_creation_v,  early_ph_vec);
     }
   
@@ -693,7 +713,8 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
 
       if(fRecoIt==0)
       {
-	//if(process_v[iphot]==0) continue;
+//	if(process_v[iphot]==1) continue;
+//        if(photon_wavelength_v[iphot]<413.||photon_wavelength_v[iphot]>448.) continue;	
 	if(PE_creation_v[iphot]==0) continue;
 	if(PE_time_v[iphot]>34.) continue;
       }
@@ -704,7 +725,7 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
       if(fRecoIt==2)
       {
         double distL = TMath::Sqrt(TMath::Power((x_hit_v[iphot] - X0*10), 2) + (y_hit_v[iphot]-Y0*10)*(y_hit_v[iphot]-Y0*10) + (z_hit_v[iphot]-Z0*10)*(z_hit_v[iphot]-Z0*10));
-        double light_vel = 300./1.53;
+        double light_vel = C_VAC/N_REF;
         double TPredicted = distL/light_vel;
         if((PE_time_v[iphot] - TPredicted) > 3.0) continue;
       } 
@@ -714,8 +735,10 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
 	fDigitT.push_back(PE_time_v[iphot]);// - min_PE_time; //!Sphere1
 	fDigitQ.push_back(1);
         fDigitW.push_back(photon_wavelength_v[iphot]);
-//	int lambda = (int)
+        fDigitN.push_back(INDEX[(int)photon_wavelength_v[iphot]]);
+        fDigitNgr.push_back(INDEX_GR[(int)photon_wavelength_v[iphot]]);
 	fDigitV.push_back(C_VAC/INDEX[(int)photon_wavelength_v[iphot]]);
+        fDigitVgr.push_back(C_VAC/INDEX_GR[(int)photon_wavelength_v[iphot]]);
 	vSeedDigitList.push_back(fThisDigit);
         fThisDigit++;
     }
@@ -732,7 +755,30 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
     recoVtxY = vSeedVtxY[best_seed];
     recoVtxZ = vSeedVtxZ[best_seed];
     recoVtxTime = vSeedVtxTime[best_seed];
+    Nphot = fDigitX.size();
+//    reco_out_ntuple->Fill();
+
+// lines below are for testing Matt's Isochron
+// ignore them - no effect on vertex reconstruction
+    for(int it=0; it!=fDigitX.size();++it)
+    { 
+      TVector3 fVec(fDigitX[it]-recoVtxX,fDigitY[it]-recoVtxY,fDigitZ[it]-recoVtxZ);
+//      TVector3 fVec(fDigitX[it]-0,fDigitY[it]-0,fDigitZ[it]-0);
+      double dD = fVec.Mag();
+      double dT = fDigitT[it] - recoVtxTime;
+      double n_eff = N_REF;//fDigitNgr[it];//C_VAC/(dD/dT);
+      cout<<"dD = "<<dD<<"   dT = "<<dT<<"   n_eff = "<<n_eff<<"   C_VAC/(dD/dT)"<<C_VAC/(dD/dT)<<endl;
+      maxalpha[it] = (float) CalcMaxAlpha(dD,dT,n_eff);//INDEX[(int)fDigitW[it]]);//N_REF);
+      TVector3 fXaxis(1,0,0);
+      true_alpha[it] = fXaxis.Angle(fVec);
+      double alpha = maxalpha[it];//true_alpha[it];
+      minS1[it] = (float) CalcS1(alpha,dD,dT,n_eff);//INDEX[(int)fDigitW[it]]);//N_REF);
+      S2[it] = (float) CalcS2(alpha,dD,dT,n_eff);//INDEX[(int)fDigitW[it]]);//N_REF);
+    }
+//========= end of Isochron test =============
+
     reco_out_ntuple->Fill();
+    evt_num++;
 
   } //end i-loop over Hits_Tree entries
 
