@@ -589,6 +589,9 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
   float true_alpha[100000];
   float minS1[100000];
   float S2[100000];
+
+  Float_t edep;
+
   TTree* reco_out_ntuple = new TTree("ntuple","ntuple");
   reco_out_ntuple->Branch("evt_num",&evt_num,"evt_num/I");
   reco_out_ntuple->Branch("recoVtxX",&recoVtxX,"recoVtxX/D");
@@ -600,6 +603,7 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
   reco_out_ntuple->Branch("true_alpha",true_alpha,"true_alpha[Nphot]/F");
   reco_out_ntuple->Branch("minS1",minS1,"minS1[Nphot]/F");
   reco_out_ntuple->Branch("S2",S2,"S2[Nphot]/F");
+  reco_out_ntuple->Branch("edep",&edep,"edep/F");
   //====================
   
   //results of the first itteration of reco is defined here
@@ -653,6 +657,8 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
   TBranch  *PE_time_corrected_b = 0;
   TBranch  *process_b = 0;
 
+  TBranch  *edep_b=0;
+
   Hits_Tree->SetBranchAddress("N_phot", &N_phot_v, &N_phot_b);
   Hits_Tree->SetBranchAddress("x_hit", x_hit_v, &x_hit_b);
   Hits_Tree->SetBranchAddress("y_hit", y_hit_v, &y_hit_b);
@@ -665,6 +671,8 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
   Hits_Tree->SetBranchAddress("true_time_corrected", true_time_corrected_v, &true_time_corrected_b);
   Hits_Tree->SetBranchAddress("PE_time_corrected", PE_time_corrected_v, &PE_time_corrected_b);
   Hits_Tree->SetBranchAddress("process", process_v, &process_b);
+
+  Hits_Tree->SetBranchAddress("edep", &edep, &edep_b);
   //===============
 
   FillIndex("../data/IndexOfRefraction_KamLAND.txt");
@@ -787,3 +795,4 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
   return 0;
 }
 
+//end
