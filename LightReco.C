@@ -17,6 +17,8 @@
 #include "TMinuit.h"
 #include "TRandom.h"
 
+#include "globals.h"
+
 #include <iostream>
 #include <sstream>
 #include <fstream>
@@ -35,6 +37,7 @@ static const int NMAX_PHOT=100000; //
 static const int NPHI=12;
 static const int NTHETA=12;
 
+using namespace std;
 
 map<int, double> INDEX;
 map<int, double> INDEX_GR;
@@ -584,11 +587,18 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
   double recoVtxY;
   double recoVtxZ;
   double recoVtxTime;
+  double trueVtxX;
+  double trueVtxY;
+  double trueVtxZ;
   int Nphot;
   float maxalpha[100000];
   float true_alpha[100000];
   float minS1[100000];
-  float S2[100000];
+  float distS2[100000]; //this S2 is for Matt's isochron
+  double S0=0.;
+  double S1=0.;
+  double S2=0.; //this S2 is 2nd moment
+  double S3=0.;
 
   Float_t edep;
 
@@ -598,13 +608,26 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
   reco_out_ntuple->Branch("recoVtxY",&recoVtxY,"recoVtxY/D");
   reco_out_ntuple->Branch("recoVtxZ",&recoVtxZ,"recoVtxZ/D");
   reco_out_ntuple->Branch("recoVtxTime",&recoVtxTime,"recoVtxTime/D");
+  reco_out_ntuple->Branch("trueVtxX",&trueVtxX,"trueVtxX/D");
+  reco_out_ntuple->Branch("trueVtxY",&trueVtxY,"trueVtxY/D");
+  reco_out_ntuple->Branch("trueVtxZ",&trueVtxZ,"trueVtxZ/D");
   reco_out_ntuple->Branch("Nphot",&Nphot,"Nphot/I");
   reco_out_ntuple->Branch("maxalpha",maxalpha,"maxalpha[Nphot]/F");
   reco_out_ntuple->Branch("true_alpha",true_alpha,"true_alpha[Nphot]/F");
   reco_out_ntuple->Branch("minS1",minS1,"minS1[Nphot]/F");
-  reco_out_ntuple->Branch("S2",S2,"S2[Nphot]/F");
+  reco_out_ntuple->Branch("distS2",distS2,"distS2[Nphot]/F"); //this S2 is for Matt's isochron
   reco_out_ntuple->Branch("edep",&edep,"edep/F");
+  reco_out_ntuple->Branch("S0",&S0,"S0/D");
+  reco_out_ntuple->Branch("S1",&S1,"S1/D");
+  reco_out_ntuple->Branch("S2",&S2,"S2/D"); //this S2 is 2nd moment
+  reco_out_ntuple->Branch("S3",&S3,"S3/D");
   //====================
+
+ 
+  std::vector<double> x_vec; //these 4 vectors are for the Moment Analysis
+  std::vector<double> y_vec;
+  std::vector<double> z_vec;
+  std::vector<double> sl_vec;
   
   //results of the first itteration of reco is defined here
   double X0, Y0, Z0;
@@ -643,6 +666,9 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
   Float_t theta_reco_v[MAX_phot];
   Float_t phi_reco_v[MAX_phot];
   int process_v[MAX_phot];
+  double trueVtxX_v;
+  double trueVtxY_v;
+  double trueVtxZ_v;
 
   TBranch  *N_phot_b = 0;
   TBranch  *x_hit_b = 0;
@@ -656,6 +682,10 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
   TBranch  *true_time_corrected_b = 0;
   TBranch  *PE_time_corrected_b = 0;
   TBranch  *process_b = 0;
+  TBranch  *trueVtxX_b = 0;
+  TBranch  *trueVtxY_b = 0;
+  TBranch  *trueVtxZ_b = 0;
+
 
   TBranch  *edep_b=0;
 
@@ -671,8 +701,11 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
   Hits_Tree->SetBranchAddress("true_time_corrected", true_time_corrected_v, &true_time_corrected_b);
   Hits_Tree->SetBranchAddress("PE_time_corrected", PE_time_corrected_v, &PE_time_corrected_b);
   Hits_Tree->SetBranchAddress("process", process_v, &process_b);
-
   Hits_Tree->SetBranchAddress("edep", &edep, &edep_b);
+
+  Hits_Tree->SetBranchAddress("trueVtxX", &trueVtxX_v, &trueVtxX_b);
+  Hits_Tree->SetBranchAddress("trueVtxY", &trueVtxY_v, &trueVtxY_b);
+  Hits_Tree->SetBranchAddress("trueVtxZ", &trueVtxZ_v, &trueVtxZ_b);
   //===============
 
   FillIndex("../data/IndexOfRefraction_KamLAND.txt");
@@ -696,6 +729,11 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
     fDigitN.clear();
     fDigitNgr.clear();
     vSeedDigitList.clear();
+
+    x_vec.clear();
+    y_vec.clear();
+    z_vec.clear();
+    sl_vec.clear();
 
     int currentEvent=i;
     cout<<"currentEvent = "<<currentEvent<<endl;
@@ -732,7 +770,7 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
       
       if(fRecoIt==2)
       {
-        double distL = TMath::Sqrt(TMath::Power((x_hit_v[iphot] - X0*10), 2) + (y_hit_v[iphot]-Y0*10)*(y_hit_v[iphot]-Y0*10) + (z_hit_v[iphot]-Z0*10)*(z_hit_v[iphot]-Z0*10));
+        double distL = TMath::Sqrt(TMath::Power((x_hit_v[iphot] - X0*10), 2) + (y_hit_v[iphot]-Y0*10)*(y_hit_v[iphot]-Y0*10) + (z_hit_v[iphot]-Z0*10)*(z_hit_v[iphot]-Z0*10))/10;
         double light_vel = C_VAC/N_REF;
         double TPredicted = distL/light_vel;
         if((PE_time_v[iphot] - TPredicted) > 3.0) continue;
@@ -763,9 +801,52 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
     recoVtxY = vSeedVtxY[best_seed];
     recoVtxZ = vSeedVtxZ[best_seed];
     recoVtxTime = vSeedVtxTime[best_seed];
+    trueVtxX = trueVtxX_v;
+    trueVtxY = trueVtxY_v;
+    trueVtxZ = trueVtxZ_v;
     Nphot = fDigitX.size();
+
+/*
+    if(fRecoIt!=2)
+    {
+      reco_out_ntuple->Fill();
+      evt_num++;
+      continue;
+    }
 //    reco_out_ntuple->Fill();
 
+
+
+// lines below are Moment Analysis
+// they are using reconstructed vertex but do not affect
+// the vertex reconstruction itself
+// comment if you only do vertex recon
+
+
+    for(int iphot=0;iphot!=N_phot_v;iphot++)
+    {
+      if(PE_creation_v[iphot]==0) continue;
+
+      double distL = TMath::Sqrt(TMath::Power((x_hit_v[iphot] - recoVtxX*10.), 2) + (y_hit_v[iphot]-recoVtxY*10.)*(y_hit_v[iphot]-recoVtxY*10.) + (z_hit_v[iphot]-recoVtxZ*10.)*(z_hit_v[iphot]-recoVtxZ*10.))/10.; //distance in cm
+      double light_vel = C_VAC/N_REF;
+      double TPredicted = distL/light_vel;
+      if((PE_time_v[iphot] - TPredicted) > 1.0) continue;  
+
+      //coordinat transfer: draw a sphere around vertex and find intersaction with
+      //a vector A, where in old coordinates A=HIT-VTX
+      // ALL THE FOLLOWING IN METERS
+      distL=distL/100; //distL is already in cm
+      x_vec.push_back(6.5*(x_hit_v[iphot]/1000.-recoVtxX/100.)/distL);
+      y_vec.push_back(6.5*(y_hit_v[iphot]/1000.-recoVtxY/100.)/distL);
+      z_vec.push_back(6.5*(z_hit_v[iphot]/1000.-recoVtxZ/100.)/distL);
+    }
+    analysis(x_vec, y_vec, z_vec, evt_num, sl_vec);
+    S0 = sl_vec[0];
+    S1 = sl_vec[1];
+    S2 = sl_vec[2];
+    S3 = sl_vec[3];
+*/
+/*
 // lines below are for testing Matt's Isochron
 // ignore them - no effect on vertex reconstruction
     for(int it=0; it!=fDigitX.size();++it)
@@ -781,10 +862,10 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
       true_alpha[it] = fXaxis.Angle(fVec);
       double alpha = maxalpha[it];//true_alpha[it];
       minS1[it] = (float) CalcS1(alpha,dD,dT,n_eff);//INDEX[(int)fDigitW[it]]);//N_REF);
-      S2[it] = (float) CalcS2(alpha,dD,dT,n_eff);//INDEX[(int)fDigitW[it]]);//N_REF);
+      distS2[it] = (float) CalcS2(alpha,dD,dT,n_eff);//INDEX[(int)fDigitW[it]]);//N_REF);
     }
 //========= end of Isochron test =============
-
+*/
     reco_out_ntuple->Fill();
     evt_num++;
 
