@@ -7,6 +7,7 @@
 
 int run_reco(char* fInputName, char* fOutputName, int fRecoIt=0)
 {
+  gInterpreter->LoadMacro("spherical_harmonics.C+");
   gInterpreter->LoadMacro("LightReco.C+");
   
   char fRecoName[200];
@@ -26,5 +27,9 @@ int run_reco(char* fInputName, char* fOutputName, int fRecoIt=0)
     LightReco(fInputName,fRecoName,1);
     LightReco(fInputName,fOutputName,2,fRecoName);
   }
+
+  if(fRecoIt>=10 && fRecoIt!=12)
+    LightReco(fInputName,fOutputName,fRecoIt);
+
 }
 

@@ -27,15 +27,23 @@
 #include <map>
 #include <iterator>
 
-int EVT_NUM=1000; //controls maximum number of events to be processed
+int EVT_NUM=100; //controls maximum number of events to be processed
 double R_SPHERE=650; //sphere diameter [cm]
 double N_REF=1.53; //average index of refraction
 double C_VAC=29.9792458; //speed of light in vacuum [cm/ns]
 int NSeedsTarget=400; //number of quadruplets
 double TSIGMA=0.5; //total time spread (including detector TTS chromatic dispersions)
 static const int NMAX_PHOT=100000; //
-static const int NPHI=12;
-static const int NTHETA=12;
+static const int NPHI=8;
+static const int NTHETA=8;
+double RECO_DT=3;
+double MOM_DT=1.0;
+double MAX_FIT_DIGITS=50;
+int RECO_MODE=0;
+double VTX_SMEAR=0.0;
+double VTX_SHIFT_X=5.0;
+double VTX_SHIFT_Y=0;
+double VTX_SHIFT_Z=0;
 
 using namespace std;
 
@@ -49,6 +57,7 @@ double meanTime=0.;
 double seedTime=0.;
 
 TRandom RND;
+TRandom rndVtx;
 
 // store seed vertex calculated from quaruplets
 vector<double> vSeedVtxX;
@@ -278,6 +287,20 @@ int ChooseNextDigit(Double_t& xpos, Double_t& ypos, Double_t& zpos, Double_t& ti
   return fThisDigit;
 }
 
+// take digit with # digit
+int ChooseNextDigit(Double_t& xpos, Double_t& ypos, Double_t& zpos, Double_t& time, int digit)
+{
+  fThisDigit=digit; // to allow simple copy-paste from random version of ChooseNextDigit
+
+  cout<<"fThisDigit = "<<fThisDigit<<endl;
+  xpos = fDigitX[fThisDigit];
+  ypos = fDigitY[fThisDigit];
+  zpos = fDigitZ[fThisDigit];
+  time = fDigitT[fThisDigit];
+  cout<<"xpos = "<<xpos<<"   ypos = "<<ypos<<"   zpos = "<<zpos<<"   time = "<<time<<endl;
+  return fThisDigit;
+}
+
 // Make a quadruple
 int ChooseNextQuadruple(Double_t& x0, Double_t& y0, Double_t& z0, Double_t& t0, Double_t& x1, Double_t& y1, Double_t& z1, Double_t& t1, Double_t& x2, Double_t& y2, Double_t& z2, Double_t& t2, Double_t& x3, Double_t& y3, Double_t& z3, Double_t& t3)
 {
@@ -320,6 +343,16 @@ int ChooseNextQuadruple(Double_t& x0, Double_t& y0, Double_t& z0, Double_t& t0, 
   return code;
 }
 
+int ChooseNextQuadruple(Double_t& x0, Double_t& y0, Double_t& z0, Double_t& t0, Double_t& x1, Double_t& y1, Double_t& z1, Double_t& t1, Double_t& x2, Double_t& y2, Double_t& z2, Double_t& t2, Double_t& x3, Double_t& y3, Double_t& z3, Double_t& t3, int digit)
+{
+  ChooseNextDigit(x0,y0,z0,t0,digit);
+  ChooseNextDigit(x1,y1,z1,t1,digit+1);
+  ChooseNextDigit(x2,y2,z2,t2,digit+2);
+  ChooseNextDigit(x3,y3,z3,t3,digit+3);
+
+  return 0;
+}
+
 // Calculate NSeedsTarget verticies
 int CalcVertexSeeds()
 {
@@ -355,13 +388,15 @@ int CalcVertexSeeds()
 
   int counter=0;  
   cout<<"I'm inside CalcVertexSeeds"<<endl;
-  while( vSeedVtxX.size()<NSeedsTarget && counter<100*NSeedsTarget )
+//  while( vSeedVtxX.size()<NSeedsTarget && counter<100*NSeedsTarget ) // uncomment for random quadruplets
+  for(int i=0;i!=fDigitX.size()-3;i++) // comment for random quadruplets
   {
     cout<<"counter = "<<endl;
     ChooseNextQuadruple(x0,y0,z0,t0,
 	                            x1,y1,z1,t1,
         	                    x2,y2,z2,t2,
-	                            x3,y3,z3,t3);
+	                            x3,y3,z3,t3, //); uncomment for random quadruplets
+				    i); // comment for random quadruplets
     cout<<"counter = "<<counter<<endl; 
     std::cout << "   digit0: (x,y,z,t)=(" << x0 << "," << y0 << "," << z0 << "," << t0 << ") " << std::endl;
     std::cout << "   digit1: (x,y,z,t)=(" << x1 << "," << y1 << "," << z1 << "," << t1 << ") " << std::endl;
@@ -432,6 +467,97 @@ int CalcVertexSeeds()
   return 0;
 }
 
+// calculates time residuals for a given vertex (vertex time excluded by default)
+int FillResiduals(Double_t vtxX, Double_t vtxY, Double_t vtxZ, Double_t vtxT=0)
+{
+  fDelta.clear();
+  for( Int_t idigit=0; idigit<fDigitX.size(); idigit++ )
+  {
+    Double_t dx = fDigitX[idigit]-vtxX;
+    Double_t dy = fDigitY[idigit]-vtxY;
+    Double_t dz = fDigitZ[idigit]-vtxZ;
+    Double_t ds = sqrt(dx*dx+dy*dy+dz*dz);
+    double fPointResidual = fDigitT[idigit] - ds/(C_VAC/N_REF) - vtxT;
+    fDelta.push_back(fPointResidual);
+  }
+  return 0;
+}
+
+// mode==0 -> sorts by time
+// mode==1 -> sorts by residuals
+int SortDigits(int mode,double X=0, double Y=0, double Z=0, double T=0)
+{
+  if(mode==1) FillResiduals(X,Y,Z,T);
+
+  double tmpX;
+  double tmpY;
+  double tmpZ;
+  double tmpT;
+  double tmpQ;
+  double tmpPE;
+  double tmpW;
+  double tmpV;
+  double tmpVgr;
+  double tmpN;
+  double tmpNgr;
+  double tmpDelta;
+ 
+  int flag=1;
+
+  for(int i=0;(i!=fDigitX.size()) && flag;i++)
+  {
+    flag = 0;
+    for(int j=0;j!=fDigitX.size()-1;j++)
+    if( (fDigitT[j]>fDigitT[j+1]) && mode==0 ||
+	(fDelta[j]>fDelta[j+1]) && mode==1     )
+    {
+//      cout<<"i = "<<i<<"   j = "<<j<<endl;
+      flag=1;
+
+      tmpX = fDigitX[j];
+      tmpY = fDigitY[j];
+      tmpZ = fDigitZ[j];
+      tmpT = fDigitT[j];
+      tmpQ = fDigitQ[j];
+//      tmpPE = fDigitPE[j];
+      tmpW = fDigitW[j];
+      tmpV = fDigitV[j];
+      tmpVgr = fDigitVgr[j];
+      tmpN = fDigitN[j];
+      tmpNgr = fDigitNgr[j];
+      if(mode==1) tmpDelta=fDelta[j];
+
+      fDigitX[j]=fDigitX[j+1];
+      fDigitY[j]=fDigitY[j+1];
+      fDigitZ[j]=fDigitZ[j+1];
+      fDigitT[j]=fDigitT[j+1];
+      fDigitQ[j]=fDigitQ[j+1];
+//      fDigitPE[j]=fDigitPE[j+1];
+      fDigitW[j]=fDigitW[j+1];
+      fDigitV[j]=fDigitV[j+1];
+      fDigitVgr[j]=fDigitVgr[j+1];
+      fDigitN[j]=fDigitN[j+1];
+      fDigitNgr[j]=fDigitNgr[j+1];
+      if(mode==1) fDelta[j]=fDelta[j+1];
+
+      fDigitX[j+1]=tmpX;
+      fDigitY[j+1]=tmpY;
+      fDigitZ[j+1]=tmpZ;
+      fDigitT[j+1]=tmpT;
+      fDigitQ[j+1]=tmpQ;
+//      fDigitPE[j+1]=tmpPE;
+      fDigitW[j+1]=tmpW;
+      fDigitV[j+1]=tmpV;
+      fDigitVgr[j+1]=tmpVgr;
+      fDigitN[j+1]=tmpN;
+      fDigitNgr[j+1]=tmpNgr;
+      if(mode==1) fDelta[j+1]=tmpDelta;
+    }
+  }
+  return 0;
+}
+
+
 // Calculates FOM by looking at time residuals
 // make sure fDelta has been filled before calling this function
 int TimePropertiesLnL(double & vtx_time, double & fom)
@@ -444,7 +570,9 @@ int TimePropertiesLnL(double & vtx_time, double & fom)
   double ndof=0.0;
 
   cout<<"fDigitX.size() = "<<fDigitX.size()<<endl;
-  for( Int_t idigit=0; idigit<fDigitX.size(); idigit++ )
+  fNDigits=fDigitX.size();
+  if(RECO_MODE==0 || RECO_MODE==2) fNDigits=MAX_FIT_DIGITS;
+  for( Int_t idigit=0; idigit<fNDigits; idigit++ )
   {
     double delta = fDelta[idigit] - vtx_time;
     Preal = A*exp(-(delta*delta)/(2.0*TSIGMA*TSIGMA));  
@@ -549,7 +677,8 @@ int SelectBestSeed(int evt_num)
       hdt0->Fill(fPointResidual0);
       hdt->Fill(fPointResidual);
 
-      fDelta.push_back(fPointResidual0);
+      fDelta.push_back(fPointResidual0); //this is what was done in WCSim for the JINST paper
+//      fDelta.push_back(fPointResidual);
       double weight = 1.0/(TSIGMA*TSIGMA);
       Swx += time*weight; // here is some room for upgrade id TSIGMA is not always the same 
       Sw += weight;
@@ -577,9 +706,86 @@ int SelectBestSeed(int evt_num)
   return bestSeed;
 }
 
+void PointVertexChi2(Double_t vtxX, Double_t vtxY, Double_t vtxZ, Double_t& vtxTime, Double_t& fom)
+{
+  fDelta.clear();
+  fNDigits=fDigitX.size();
+  if(RECO_MODE==0 || RECO_MODE==2) fNDigits=MAX_FIT_DIGITS;
+  for( Int_t idigit=0; idigit<fNDigits; idigit++ )
+  {
+    Double_t dx = fDigitX[idigit]-vtxX;
+    Double_t dy = fDigitY[idigit]-vtxY;
+    Double_t dz = fDigitZ[idigit]-vtxZ;
+    Double_t ds = sqrt(dx*dx+dy*dy+dz*dz);
+    double fPointResidual0 = fDigitT[idigit] - ds/(C_VAC/N_REF);
+    fDelta.push_back(fPointResidual0);
+  }
+  TimePropertiesLnL(vtxTime,fom);
+  return;
+}
+
+static void point_vertex_chi2(Int_t&, Double_t*, Double_t& f, Double_t* par, Int_t)
+{
+  Double_t vtxX     = par[0]; // centimetres
+  Double_t vtxY     = par[1];
+  Double_t vtxZ     = par[2];
+  Double_t vtime    = par[3];
+
+  Double_t fom = 0.0;
+
+  PointVertexChi2(vtxX,vtxY,vtxZ,vtime,fom);
+
+  f = -fom; // note: need to maximize this fom
+  return;
+}
+
+int FitPointVertexWithMinuit(double & fX, double & fY, double & fZ, double & fT, int evt_num)
+{
+  Int_t err = 0;
+  Int_t flag = 0;
+
+//  Double_t fitXpos = 0.0;
+//  Double_t fitYpos = 0.0;
+//  Double_t fitZpos = 0.0;
+
+  Double_t fitXposErr = 0.0;
+  Double_t fitYposErr = 0.0;
+  Double_t fitZposErr = 0.0;
+  Double_t fitTErr = 0.0;
+
+  TMinuit* fMinuitPointVertex = new TMinuit();
+  fMinuitPointVertex->SetMaxIterations(5000);
+
+  Double_t* arglist = new Double_t[10];
+  arglist[0]=1;  // 1: standard minimization
+                 // 2: try to improve minimum
+                 //
+                 //   // re-initialize everything...
+  fMinuitPointVertex->mncler();
+  fMinuitPointVertex->SetFCN(point_vertex_chi2);
+  fMinuitPointVertex->mnexcm("SET STR",arglist,1,err);
+  fMinuitPointVertex->mnparm(0,"x",fX,0.1,fX-50.0,fX+50.0,err);
+  fMinuitPointVertex->mnparm(1,"y",fY,0.1,fY-50.0,fY+50.0,err);
+  fMinuitPointVertex->mnparm(2,"z",fZ,0.1,fZ-50.0,fZ+50.0,err);
+  fMinuitPointVertex->mnparm(3,"z",fT,0.05,fT-5.0,fT+5.0,err);
+
+  flag = fMinuitPointVertex->Migrad();
+  fMinuitPointVertex->GetParameter(0,fX,fitXposErr);
+  fMinuitPointVertex->GetParameter(1,fY,fitYposErr);
+  fMinuitPointVertex->GetParameter(2,fZ,fitZposErr);
+  fMinuitPointVertex->GetParameter(3,fT,fitTErr);
+
+  delete [] arglist;
+  delete fMinuitPointVertex;
+
+  return 0;
+}
+
+
 // Main function. Loops over input TTree, filters photon hits and calls everything above
 int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRecoName="f.root")
 {
+  RECO_MODE=fRecoIt;
   //define reconstrution output here
   TFile f_out(fOutputName,"recreate");
   int evt_num=0;
@@ -587,6 +793,10 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
   double recoVtxY;
   double recoVtxZ;
   double recoVtxTime;
+  double bsVtxX;
+  double bsVtxY;
+  double bsVtxZ;
+  double bsVtxTime;
   double trueVtxX;
   double trueVtxY;
   double trueVtxZ;
@@ -599,6 +809,17 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
   double S1=0.;
   double S2=0.; //this S2 is 2nd moment
   double S3=0.;
+  int recoN_che=0;
+  int recoN_sci=0;
+  int momNpe=0;
+  int momNpe_che=0;
+  int momNpe_sci=0;
+  int momN_che=0;
+  int momN_sci=0;
+  float recoDT[NMAX_PHOT];
+  float momDT[NMAX_PHOT];
+  float momDT_che[NMAX_PHOT];
+  float momDT_sci[NMAX_PHOT];
 
   Float_t edep;
 
@@ -608,6 +829,10 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
   reco_out_ntuple->Branch("recoVtxY",&recoVtxY,"recoVtxY/D");
   reco_out_ntuple->Branch("recoVtxZ",&recoVtxZ,"recoVtxZ/D");
   reco_out_ntuple->Branch("recoVtxTime",&recoVtxTime,"recoVtxTime/D");
+  reco_out_ntuple->Branch("bsVtxX",&bsVtxX,"bsVtxX/D");
+  reco_out_ntuple->Branch("bsVtxY",&bsVtxY,"bsVtxY/D");
+  reco_out_ntuple->Branch("bsVtxZ",&bsVtxZ,"bsVtxZ/D");
+  reco_out_ntuple->Branch("bsVtxTime",&bsVtxTime,"bsVtxTime/D");
   reco_out_ntuple->Branch("trueVtxX",&trueVtxX,"trueVtxX/D");
   reco_out_ntuple->Branch("trueVtxY",&trueVtxY,"trueVtxY/D");
   reco_out_ntuple->Branch("trueVtxZ",&trueVtxZ,"trueVtxZ/D");
@@ -621,6 +846,17 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
   reco_out_ntuple->Branch("S1",&S1,"S1/D");
   reco_out_ntuple->Branch("S2",&S2,"S2/D"); //this S2 is 2nd moment
   reco_out_ntuple->Branch("S3",&S3,"S3/D");
+  reco_out_ntuple->Branch("recoN_che",&recoN_che,"recoN_che/I");
+  reco_out_ntuple->Branch("recoN_sci",&recoN_sci,"recoN_sci/I");
+  reco_out_ntuple->Branch("momNpe",&momNpe,"momNpe/I");
+  reco_out_ntuple->Branch("momNpe_che",&momNpe_che,"momNpe_che/I");
+  reco_out_ntuple->Branch("momNpe_sci",&momNpe_sci,"momNpe_sci/I");
+  reco_out_ntuple->Branch("momN_che",&momN_che,"momN_che/I");
+  reco_out_ntuple->Branch("momN_sci",&momN_sci,"momN_sci/I");
+  reco_out_ntuple->Branch("recoDT",recoDT,"recoDT[Nphot]/F");
+  reco_out_ntuple->Branch("momDT",momDT,"momDT[momNpe]/F");
+  reco_out_ntuple->Branch("momDT_che",momDT_che,"momDT_che[momNpe_che]/F");
+  reco_out_ntuple->Branch("momDT_sci",momDT_sci,"momDT_sci[momNpe_sci]/F");
   //====================
 
  
@@ -715,6 +951,17 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
   int nev = EVT_NUM<N_Entries_Hits_Tree ? EVT_NUM : N_Entries_Hits_Tree; 
   for(int i=0;i<nev;i++)
   {
+    S0=-999;
+    S1=-999;
+    S2=-999;
+    S3=-999;
+    recoN_che=0;
+    recoN_sci=0;
+    momNpe=0;
+    momNpe_che=0;
+    momNpe_sci=0;
+    momN_che=0;
+    momN_sci=0;
 
     fThisDigit=0;
     fDigitX.clear();
@@ -755,7 +1002,7 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
     for(int iphot=0;iphot!=N_phot_v;iphot++)
     {
 //         if(process_v==0) continue; //!Sphere1
-//         //         if(PE_creation_v[iphot]==0) continue; //!Sphere1
+//        if(PE_creation_v[iphot]==0) continue; //!Sphere1
 
       if(fRecoIt==0)
       {
@@ -770,11 +1017,19 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
       
       if(fRecoIt==2)
       {
+        if(PE_creation_v[iphot]==0) continue;
         double distL = TMath::Sqrt(TMath::Power((x_hit_v[iphot] - X0*10), 2) + (y_hit_v[iphot]-Y0*10)*(y_hit_v[iphot]-Y0*10) + (z_hit_v[iphot]-Z0*10)*(z_hit_v[iphot]-Z0*10))/10;
         double light_vel = C_VAC/N_REF;
         double TPredicted = distL/light_vel;
-        if((PE_time_v[iphot] - TPredicted) > 3.0) continue;
+        recoDT[iphot] = (PE_time_v[iphot] - TPredicted);
+        if((PE_time_v[iphot] - TPredicted) > RECO_DT) continue;
       } 
+       
+//first thing: count how many cherenkov and scintillation photons are used by the reco
+//
+	if(process_v[iphot]==1) recoN_che++;
+        if(process_v[iphot]==0) recoN_sci++;
+
         fDigitX.push_back(x_hit_v[iphot]/10.); //!Sphere1
         fDigitY.push_back(y_hit_v[iphot]/10.);//!Sphere1
         fDigitZ.push_back(z_hit_v[iphot]/10.);//!Sphere1
@@ -790,6 +1045,45 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
     }
 
     cout<<"Photon filtering for event #"<<i<<" has just finished. fDigits are ready."<<endl;
+
+    if(fRecoIt==0)  
+      SortDigits(0); //sort by time of arrival
+    if(fRecoIt==2)
+      SortDigits(1,X0,Y0,Z0); //sort by time residuals for a given vertex
+
+
+    cout<<"NDigits = "<<fDigitX.size()<<endl;
+
+// the double loop below (commented) is just a check whether time ordering worked properly
+/*    for(int i=0;i!=fDigitX.size()-1;i++)
+    {
+      cout<<fDigitT[i]<<"	";
+      for(int j=i+1;j!=fDigitX.size();j++)
+      {
+        if(fDigitT[i]>fDigitT[j])
+        {
+	  cout<<endl;
+          cout<<"WARNING: wrong time ordering"<<endl;
+        }
+      }
+    }
+*/
+
+    if(fRecoIt>=10) //option 10 doesn't do any real reconstructionm just smear true vertex with resolution
+    {
+      recoVtxX = trueVtxX_v + rndVtx.Gaus(VTX_SHIFT_X,VTX_SMEAR);
+      recoVtxY = trueVtxY_v + rndVtx.Gaus(VTX_SHIFT_Y,VTX_SMEAR);
+      recoVtxZ = trueVtxZ_v + rndVtx.Gaus(VTX_SHIFT_Z,VTX_SMEAR);
+
+
+      trueVtxX = trueVtxX_v;
+      trueVtxY = trueVtxY_v;
+      trueVtxZ = trueVtxZ_v;
+      Nphot = fDigitX.size();
+    } else
+    {
+
+  
     //calculate seed vertices
     CalcVertexSeeds();
 
@@ -801,13 +1095,21 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
     recoVtxY = vSeedVtxY[best_seed];
     recoVtxZ = vSeedVtxZ[best_seed];
     recoVtxTime = vSeedVtxTime[best_seed];
+
+    bsVtxX = vSeedVtxX[best_seed];
+    bsVtxY = vSeedVtxY[best_seed];
+    bsVtxZ = vSeedVtxZ[best_seed];
+    bsVtxTime = vSeedVtxTime[best_seed];
+
+    FitPointVertexWithMinuit(recoVtxX, recoVtxY, recoVtxZ, recoVtxTime,currentEvent);
+
     trueVtxX = trueVtxX_v;
     trueVtxY = trueVtxY_v;
     trueVtxZ = trueVtxZ_v;
     Nphot = fDigitX.size();
+    }
 
-/*
-    if(fRecoIt!=2)
+    if(fRecoIt!=2 && fRecoIt<10)
     {
       reco_out_ntuple->Fill();
       evt_num++;
@@ -822,15 +1124,39 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
 // the vertex reconstruction itself
 // comment if you only do vertex recon
 
-
     for(int iphot=0;iphot!=N_phot_v;iphot++)
     {
+//      if(process_v[iphot]==0) continue; //che Light only
+//      if(process_v[iphot]==1) continue; //sci Light only
+
       if(PE_creation_v[iphot]==0) continue;
 
       double distL = TMath::Sqrt(TMath::Power((x_hit_v[iphot] - recoVtxX*10.), 2) + (y_hit_v[iphot]-recoVtxY*10.)*(y_hit_v[iphot]-recoVtxY*10.) + (z_hit_v[iphot]-recoVtxZ*10.)*(z_hit_v[iphot]-recoVtxZ*10.))/10.; //distance in cm
+//      double distL = TMath::Sqrt(TMath::Power((x_hit_v[iphot] - trueVtxX*10.), 2) + (y_hit_v[iphot]-trueVtxY*10.)*(y_hit_v[iphot]-trueVtxY*10.) + (z_hit_v[iphot]-trueVtxZ*10.)*(z_hit_v[iphot]-trueVtxZ*10.))/10.; //distance in cm
       double light_vel = C_VAC/N_REF;
       double TPredicted = distL/light_vel;
-      if((PE_time_v[iphot] - TPredicted) > 1.0) continue;  
+//      cout<<"distL = "<<distL<<"   light_vel = "<<light_vel<<endl;
+
+      momDT[momNpe] = (PE_time_v[iphot] - TPredicted);
+
+      if(process_v[iphot]==1) 
+      {
+	momDT_che[momNpe_che] = momDT[momNpe];
+	momNpe_che++;
+      }
+      if(process_v[iphot]==0) 
+      {
+	momDT_sci[momNpe_sci] = momDT[momNpe];
+	momNpe_sci++;
+      }
+      momNpe++;
+
+      if((PE_time_v[iphot] - TPredicted) > MOM_DT) continue; 
+
+//count how many cherenkov and scintillation photons are used by the moment analysis
+      if(process_v[iphot]==1) momN_che++;
+      if(process_v[iphot]==0) momN_sci++;
+
 
       //coordinat transfer: draw a sphere around vertex and find intersaction with
       //a vector A, where in old coordinates A=HIT-VTX
@@ -839,13 +1165,21 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
       x_vec.push_back(6.5*(x_hit_v[iphot]/1000.-recoVtxX/100.)/distL);
       y_vec.push_back(6.5*(y_hit_v[iphot]/1000.-recoVtxY/100.)/distL);
       z_vec.push_back(6.5*(z_hit_v[iphot]/1000.-recoVtxZ/100.)/distL);
+      
     }
+    cout<<"recoVtxX = "<<recoVtxX<<"   trueVtxX = "<<trueVtxX<<endl;
+    cout<<"recoVtxY = "<<recoVtxY<<"   trueVtxY = "<<trueVtxY<<endl;
+    cout<<"recoVtxZ = "<<recoVtxZ<<"   trueVtxZ = "<<trueVtxZ<<endl;
+   
+    cout<<"x_vec.size() = "<<x_vec.size()<<endl;
+    cout<<"x[0] = "<<x_vec[0]<<"   y[0] = "<<y_vec[0]<<"   z[0] = "<<z_vec[0]<<endl;
+    cout<<"x[10] = "<<x_vec[10]<<"   y[10] = "<<y_vec[10]<<"   z[10] = "<<z_vec[10]<<endl;
     analysis(x_vec, y_vec, z_vec, evt_num, sl_vec);
     S0 = sl_vec[0];
     S1 = sl_vec[1];
     S2 = sl_vec[2];
     S3 = sl_vec[3];
-*/
+
 /*
 // lines below are for testing Matt's Isochron
 // ignore them - no effect on vertex reconstruction
