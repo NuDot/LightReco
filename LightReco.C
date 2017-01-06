@@ -27,7 +27,7 @@
 #include <map>
 #include <iterator>
 
-int EVT_NUM=100; //controls maximum number of events to be processed
+int EVT_NUM=1000; //controls maximum number of events to be processed
 double R_SPHERE=650; //sphere diameter [cm]
 double N_REF=1.53; //average index of refraction
 double C_VAC=29.9792458; //speed of light in vacuum [cm/ns]
@@ -40,10 +40,13 @@ double RECO_DT=3;
 double MOM_DT=1.0;
 double MAX_FIT_DIGITS=50;
 int RECO_MODE=0;
-double VTX_SMEAR=0.0;
-double VTX_SHIFT_X=5.0;
-double VTX_SHIFT_Y=0;
-double VTX_SHIFT_Z=0;
+double VTX_SMEAR=0.0; // in cm
+double VTX_SHIFT_X=0.0; //in cm
+double VTX_SHIFT_Y=0.0;
+double VTX_SHIFT_Z=0.0;
+
+int EARLY_RECO_NPHOT=1;
+int EARLY_MOM_NPHOT=20;
 
 using namespace std;
 
@@ -58,6 +61,8 @@ double seedTime=0.;
 
 TRandom RND;
 TRandom rndVtx;
+TRandom rndTime;
+TRandom rndQE;
 
 // store seed vertex calculated from quaruplets
 vector<double> vSeedVtxX;
@@ -809,6 +814,16 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
   double S1=0.;
   double S2=0.; //this S2 is 2nd moment
   double S3=0.;
+  double S4=0.;
+  double S5=0.;
+  double S6=0.;
+  double S7=0.;
+  double S8=0.;
+  double S9=0.;
+  double Fnorm=0.;
+  double J1=0.;
+  double J2=0.;
+  double J3=0.;
   int recoN_che=0;
   int recoN_sci=0;
   int momNpe=0;
@@ -846,6 +861,16 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
   reco_out_ntuple->Branch("S1",&S1,"S1/D");
   reco_out_ntuple->Branch("S2",&S2,"S2/D"); //this S2 is 2nd moment
   reco_out_ntuple->Branch("S3",&S3,"S3/D");
+  reco_out_ntuple->Branch("S4",&S4,"S4/D");
+  reco_out_ntuple->Branch("S5",&S5,"S5/D");
+  reco_out_ntuple->Branch("S6",&S6,"S6/D");
+  reco_out_ntuple->Branch("S7",&S7,"S7/D");
+  reco_out_ntuple->Branch("S8",&S8,"S8/D");
+  reco_out_ntuple->Branch("S9",&S9,"S9/D");
+  reco_out_ntuple->Branch("Fnorm",&Fnorm,"Fnorm/D");
+  reco_out_ntuple->Branch("J1",&J1,"J1/D");
+  reco_out_ntuple->Branch("J2",&J2,"J2/D");
+  reco_out_ntuple->Branch("J3",&J3,"J3/D");
   reco_out_ntuple->Branch("recoN_che",&recoN_che,"recoN_che/I");
   reco_out_ntuple->Branch("recoN_sci",&recoN_sci,"recoN_sci/I");
   reco_out_ntuple->Branch("momNpe",&momNpe,"momNpe/I");
@@ -864,6 +889,10 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
   std::vector<double> y_vec;
   std::vector<double> z_vec;
   std::vector<double> sl_vec;
+
+  std::vector<double> X_VEC;
+  std::vector<double> Y_VEC;
+  std::vector<double> Z_VEC;
   
   //results of the first itteration of reco is defined here
   double X0, Y0, Z0;
@@ -951,10 +980,21 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
   int nev = EVT_NUM<N_Entries_Hits_Tree ? EVT_NUM : N_Entries_Hits_Tree; 
   for(int i=0;i<nev;i++)
   {
+    if(i==0 || i==1000 || i==2000 || i==3000 || i==4000 || i==5000 || i==6000 || i==7000 || i==8000 || i==9000) continue; ///AE!!!!! tmp fix for empty first events in Sphere1 output
     S0=-999;
     S1=-999;
     S2=-999;
     S3=-999;
+    S4=-999;
+    S5=-999;
+    S6=-999;
+    S7=-999;
+    S8=-999;
+    S9=-999;
+    Fnorm=-999;
+    J1=-999;
+    J2=-999;
+    J3=-999;
     recoN_che=0;
     recoN_sci=0;
     momNpe=0;
@@ -987,6 +1027,8 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
 
     Hits_Tree->GetEntry(currentEvent);
 
+//    if(edep<2.1 || edep>2.9) continue;
+//    if(edep<2.276 || edep>2.782) continue;
     
     bool early_ph_vec[NMAX_PHOT];
     if(fRecoIt==1)
@@ -998,6 +1040,8 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
   
 //    if(fRecoIt==2) recoTree->GetEntry(currentEvent-100*(NNN-1));
     if(fRecoIt==2) recoTree->GetEntry(currentEvent);
+
+    cout<<"N_phot_v = "<<N_phot_v<<endl;
 
     for(int iphot=0;iphot!=N_phot_v;iphot++)
     {
@@ -1123,17 +1167,46 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
 // they are using reconstructed vertex but do not affect
 // the vertex reconstruction itself
 // comment if you only do vertex recon
+/*
+    int early_momPh[NMAX_PHOT];
+    for(int ii=0;ii!=N_phot_v;++ii)
+      early_momPh[ii]=0;
+    MarkEarlyPhotons_(N_phot_v,x_hit_v,y_hit_v,z_hit_v,PE_time_v,process_v,PE_creation_v,  early_momPh, EARLY_MOM_NPHOT);
+
+    bool early_momPh_test[NMAX_PHOT];
+    for(int ii=0;ii!=N_phot_v;++ii)
+      early_momPh_test[ii]=0;
+    MarkEarlyPhotons(N_phot_v,x_hit_v,y_hit_v,z_hit_v,PE_time_v,process_v,PE_creation_v,  early_momPh_test);
 
     for(int iphot=0;iphot!=N_phot_v;iphot++)
     {
-//      if(process_v[iphot]==0) continue; //che Light only
+      if(early_momPh[iphot]==1) cout<<"early_momPh_test = "<<early_momPh_test[iphot]<<endl;
+      if(early_momPh_test[iphot]==1) cout<<"early_momPh = "<<early_momPh[iphot]<<endl;
+    }
+*/
+    for(int iphot=0;iphot!=N_phot_v;iphot++)
+    {
+      if(process_v[iphot]==0) continue; //che Light only
 //      if(process_v[iphot]==1) continue; //sci Light only
 
-      if(PE_creation_v[iphot]==0) continue;
+//Testing different TTSs:
+//      PE_time_v[iphot] = true_time_v[iphot] + rndTime.Gaus(0,1.28);   
+
+//Implementation of simple delay of the scintillation light
+/*
+      if(process_v[iphot]==0) //extra delay for sci Light
+      {
+	PE_time_v[iphot] = PE_time_v[iphot] + 0.5;
+      }
+*/
+//      if(!early_momPh[iphot]) continue;
+//      if(PE_creation_v[iphot]==0) continue; //QE
+      if(rndQE.Rndm()<0.7) continue;
 
       double distL = TMath::Sqrt(TMath::Power((x_hit_v[iphot] - recoVtxX*10.), 2) + (y_hit_v[iphot]-recoVtxY*10.)*(y_hit_v[iphot]-recoVtxY*10.) + (z_hit_v[iphot]-recoVtxZ*10.)*(z_hit_v[iphot]-recoVtxZ*10.))/10.; //distance in cm
 //      double distL = TMath::Sqrt(TMath::Power((x_hit_v[iphot] - trueVtxX*10.), 2) + (y_hit_v[iphot]-trueVtxY*10.)*(y_hit_v[iphot]-trueVtxY*10.) + (z_hit_v[iphot]-trueVtxZ*10.)*(z_hit_v[iphot]-trueVtxZ*10.))/10.; //distance in cm
       double light_vel = C_VAC/N_REF;
+//      double TPredicted = 650./light_vel;
       double TPredicted = distL/light_vel;
 //      cout<<"distL = "<<distL<<"   light_vel = "<<light_vel<<endl;
 
@@ -1151,7 +1224,11 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
       }
       momNpe++;
 
-      if((PE_time_v[iphot] - TPredicted) > MOM_DT) continue; 
+//      if((PE_time_v[iphot] - TPredicted) > MOM_DT) continue; 
+//      if(PE_time_v[iphot]>33.5) continue;
+//     if(process_v[iphot]==1 && PE_time_v[iphot]>32.5) continue;
+//     if(process_v[iphot]==0 && PE_time_v[iphot]>33.5) continue;
+          
 
 //count how many cherenkov and scintillation photons are used by the moment analysis
       if(process_v[iphot]==1) momN_che++;
@@ -1166,6 +1243,9 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
       y_vec.push_back(6.5*(y_hit_v[iphot]/1000.-recoVtxY/100.)/distL);
       z_vec.push_back(6.5*(z_hit_v[iphot]/1000.-recoVtxZ/100.)/distL);
       
+      X_VEC.push_back(6.5*(x_hit_v[iphot]/1000.-recoVtxX/100.)/distL);
+      Y_VEC.push_back(6.5*(y_hit_v[iphot]/1000.-recoVtxY/100.)/distL);
+      Z_VEC.push_back(6.5*(z_hit_v[iphot]/1000.-recoVtxZ/100.)/distL);
     }
     cout<<"recoVtxX = "<<recoVtxX<<"   trueVtxX = "<<trueVtxX<<endl;
     cout<<"recoVtxY = "<<recoVtxY<<"   trueVtxY = "<<trueVtxY<<endl;
@@ -1174,11 +1254,32 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
     cout<<"x_vec.size() = "<<x_vec.size()<<endl;
     cout<<"x[0] = "<<x_vec[0]<<"   y[0] = "<<y_vec[0]<<"   z[0] = "<<z_vec[0]<<endl;
     cout<<"x[10] = "<<x_vec[10]<<"   y[10] = "<<y_vec[10]<<"   z[10] = "<<z_vec[10]<<endl;
-    analysis(x_vec, y_vec, z_vec, evt_num, sl_vec);
+
+//!!!!!!!!!!!!!		Spherical analysis is commented for C10 timing studies !!!!!!!!!!!!!!!
+    analysis(x_vec, y_vec, z_vec, evt_num, sl_vec, Fnorm, fOutputName);
+//    fourie_analysis(y_vec, x_vec, z_vec, evt_num, sl_vec);    
+//    fourie_analysis(x_vec, z_vec, y_vec, evt_num, sl_vec);    
     S0 = sl_vec[0];
     S1 = sl_vec[1];
     S2 = sl_vec[2];
     S3 = sl_vec[3];
+
+
+    S4 = sl_vec[4];
+//    S5 = sl_vec[5];
+
+/*
+    S6 = sl_vec[6];
+    S7 = sl_vec[7];
+    S8 = sl_vec[8];
+
+    S9 = sl_vec[9];
+*/
+/*
+    J1 = Psi1(x_vec,y_vec,z_vec);
+    J2 = Psi2(x_vec,y_vec,z_vec);
+    J3 = Psi3(x_vec,y_vec,z_vec);
+*/    
 
 /*
 // lines below are for testing Matt's Isochron
@@ -1200,10 +1301,14 @@ int LightReco(char* fInputName, char* fOutputName, int fRecoIt=0, char* fFirstRe
     }
 //========= end of Isochron test =============
 */
+
     reco_out_ntuple->Fill();
     evt_num++;
 
   } //end i-loop over Hits_Tree entries
+
+//analysis(x_vec, y_vec, z_vec, evt_num, sl_vec, Fnorm, fOutputName);
+//    analysis(X_VEC, Y_VEC, Z_VEC, evt_num, sl_vec, fOutputName);
 
   f_out.cd();
   reco_out_ntuple->Write();

@@ -169,6 +169,18 @@ double Func(double theta, double phi, int l=0, int m=0)
 
 }
 
+
+double Func2(double theta, double phi, int l=0, int m=0)
+{
+  int bin_x = int((theta-h2_par.min_x)/h2_par.bin_size_x)+1; //bins count from 1
+  int bin_y = int((phi-h2_par.min_y)/h2_par.bin_size_y)+1; //bins count from 1
+//  double bin_norm = htp->GetBinContent(bin_x,bin_y)/h2_par.Nentries;
+  double pdf = htp->GetBinContent(bin_x,bin_y)/(h2_par.Nentries*h2_par.bin_size_x*h2_par.bin_size_y);
+  return pdf*pdf;
+}
+
+
+
 double I2D(double (*func)(double,double,int,int), double x1, double x2, double y1, double y2, int l=0, int m=0)
 {
   TRandom rndGen;
@@ -199,6 +211,7 @@ double I2D(double (*func)(double,double,int,int), double x1, double x2, double y
       err=0.000001;
     }
     if(fabs(err)<0.04 && i>1000) break;
+//    if(fabs(err)<0.01 && i>1000) break;
   }
   cout<<"I = "<<I<<"   dI = "<<dI<<"   err = "<<err<<"   N = "<<NUM<<endl;
   if(fabs(err)>0.05) 
@@ -213,7 +226,8 @@ double SinFunc(double theta, double phi, int l=0, int m=0 )
 
 double SinFunc2(double theta, double phi, int l=0, int m=0)
 {
-  return SinFunc(theta,phi)*Func(theta,phi);
+//  return SinFunc(theta,phi)*Func(theta,phi);
+  return Func2(theta,phi)*TMath::Sin(theta);
 }
 
 double SinFuncYlm(double theta, double phi, int l=0, int m=0)
@@ -230,6 +244,26 @@ double alm(int l, int m)
 {
   double dI=0;
   return I2D(&SinFuncYlm, 0.,TMath::Pi(),0.,2.*TMath::Pi(),l,m);
+}
+
+double ReFourie(double theta, double phi, int l=0, int m=0)
+{
+  return Func(theta,phi)*cos(2*l*theta+m*phi);
+}
+
+double ImFourie(double theta, double phi, int l=0, int m=0)
+{
+  return -Func(theta,phi)*sin(2*l*theta+m*phi);
+}
+
+double ReClm(int l, int m)
+{
+  return I2D(&ReFourie, 0.,TMath::Pi(),0.,2.*TMath::Pi(),l,m);  
+}
+
+double ImClm(int l, int m)
+{
+  return I2D(&ImFourie, 0.,TMath::Pi(),0.,2.*TMath::Pi(),l,m);
 }
 
 double Fl(int l, double theta, double phi)
@@ -292,6 +326,7 @@ double FuncNorm()
 {
   double dI=0;
   return I2D(&SinFunc2, 0.,TMath::Pi(),0.,2.*TMath::Pi());
+//  return I2D(&SinFunc2, 0.,TMath::Pi(),0.,2.*TMath::Pi())*(TMath::Pi()/Ntheta)*(2.*TMath::Pi()/Nphi);
 }
 
 int analysis()
@@ -332,7 +367,102 @@ int analysis()
 } 
 
 
-int analysis(vector<double> & x, vector<double> & y, vector<double> & z, int evt, vector<double> & fSL)
+int analysis(vector<double> & x, vector<double> & y, vector<double> & z, int evt, vector<double> & fSL, double & norm, char* fOutputName)
+{
+  //string case_name="bkgTl208_center_allLight_35ns_100";
+  //string case_name="Se82_center_allLight_33ns_1k"
+//  string case_name="tmp";//"1el_2p995MeV_center_allLight_33ns_400";
+
+  TH3F* hxyz = new TH3F(Form("hxyz_%d",evt),Form("hxyz_%d",evt),70,-7,7, 70,-7,7, 70,-7,7);
+  htp = new TH2F(Form("htp_%d",evt),Form("htp_%d",evt),Ntheta,0,3.1415926535, Nphi,0,6.283185307);
+  for(int i=0;i!=x.size();i++)
+  {
+    TVector3 hit_vec(x[i],y[i],z[i]);
+    double theta = hit_vec.Theta();
+    double phi = hit_vec.Phi();
+    if(phi<0.) phi=2*pi+phi;
+    htp->Fill(theta,phi);
+    hxyz->Fill(x[i],y[i],z[i]);
+  }
+
+//  for(int i=0;i!=Ntheta;i++)
+//    for(int j=0;j!=Nphi;j++)
+//      htp->SetBinContent(i+1,j+1,10+10*htp->GetBinContent(i+1,j+1));
+
+  h2_par = create_h2_par(htp);
+  cout<<"htp_Nev = "<<h2_par.Nentries<<endl;
+  cout<<"NL = "<<NL<<endl;
+
+  TH1F* hL = new TH1F(Form("hL_%d",evt),Form("hL_%d",evt),NL,0,NL);
+
+  double sum=0.;
+  for(int l=0;l!=NL;l++)
+  {
+    double sl=Sl(l);
+    cout<<"     S("<<l<<") = "<<sl<<endl;
+    sum+=sl;
+    hL->SetBinContent(l+1,sl);
+    fSL.push_back(sl);
+  }
+
+  norm=FuncNorm();
+  cout<<"Norm = "<<norm<<"   SumSl = "<<sum<<"   epsilon = "<<(norm-sum)/norm<<endl;
+
+  string fOption;
+  if(evt==0) fOption="RECREATE";
+  else fOption="UPDATE";
+
+  TFile f_out(Form("fL_%s",fOutputName),fOption.c_str());
+  f_out.cd();
+  hL->Write();
+  htp->Write();
+  hxyz->Write();
+  f_out.Close();
+
+
+  delete hL;
+  delete htp;
+
+  return 0;
+}
+
+int analysis(char* fName, int NEV)
+{
+//  TH2F* htp = new TH2F("htp","htp",Ntheta,0,3.1415926535, Nphi,0,6.283185307);
+  htp = new TH2F("htp","htp",Ntheta,0,3.1415926535, Nphi,0,6.283185307);
+  TFile f(fName,"UPDATE");
+  for(int i=0;i!=NEV;i++)
+  {
+    TH2F* htp_i = (TH2F*)f.Get(Form("htp_%d",i));
+    htp->Add(htp_i);
+    cout<<"i = "<<i<<endl;
+  }
+  h2_par = create_h2_par(htp); 
+  cout<<"htp_Nev = "<<h2_par.Nentries<<endl;
+  cout<<"NL = "<<NL<<endl;
+
+  TH1F* hL_sum = new TH1F("hL_sum","hL_sum",NL,0,NL);
+
+  double sum=0.;
+  for(int l=0;l!=NL;l++)
+  {
+    double sl=Sl(l);
+    cout<<"     S("<<l<<") = "<<sl<<endl;
+    sum+=sl;
+    hL_sum->SetBinContent(l+1,sl);
+ //   fSL.push_back(sl);
+  }
+  
+  f.cd();
+  hL_sum->Write();
+  htp->Write();
+  f.Close();
+
+  return 0;
+}
+
+
+int fourie_analysis(vector<double> & x, vector<double> & y, vector<double> & z, int evt, vector<double> & fSL)
 {
   //string case_name="bkgTl208_center_allLight_35ns_100";
   //string case_name="Se82_center_allLight_33ns_1k"
@@ -354,7 +484,7 @@ int analysis(vector<double> & x, vector<double> & y, vector<double> & z, int evt
   cout<<"NL = "<<NL<<endl;
 
   TH1F* hL = new TH1F(Form("hL_%d",evt),Form("hL_%d",evt),NL,0,NL);
-
+/*
   double sum=0.;
   for(int l=0;l!=NL;l++)
   {
@@ -364,6 +494,15 @@ int analysis(vector<double> & x, vector<double> & y, vector<double> & z, int evt
     hL->SetBinContent(l+1,sl);
     fSL.push_back(sl);
   }
+*/
+
+  for(int l=0;l!=3;l++)
+    for(int m=0;m!=3;m++)
+    {
+      double re = ReClm(l,m);
+      double im = ImClm(l,m);
+      fSL.push_back(sqrt(re*re+im*im));
+    }
 
   string fOption;
   if(evt==0) fOption="RECREATE";
@@ -380,8 +519,6 @@ int analysis(vector<double> & x, vector<double> & y, vector<double> & z, int evt
 
   return 0;
 }
-
-
 
 
 

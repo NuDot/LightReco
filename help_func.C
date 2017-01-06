@@ -50,9 +50,59 @@ int MarkEarlyPhotons(int N, float* x, float* y, float* z, float* t, int* process
       ph_vec[n1st]=1;
     }
 
+  return 0;
+}
+
+
+int MarkEarlyPhotons_(int N, float* x, float* y, float* z, float* t, int* process, int* pe, int* ph_vec, int num=1)
+{
+//Fill in iphi-itheta towers with photon number (only photons passing QE&P cuts)
+////QE&P = quantum efficiency and creation process
+  std::vector<int> map[NPHI][NTHETA];
+  for(int i=0;i!=N;++i)
+  {
+//    if(process) continue;
+    if(pe[i]==0) continue;
+
+    TVector3 vec(x[i],y[i],z[i]);
+    int iphi=TowerIPhi(vec.Phi());
+    int itheta=TowerITheta(vec.Theta());
+    map[iphi][itheta].push_back(i);
+  }
+// at this point map is created from photons passing QE&P cuts
+// let's mark earliest in each sphere segment
+  for(int ip=0;ip!=NPHI;++ip)
+    for(int it=0;it!=NTHETA;++it)
+    {
+      if(map[ip][it].size()==0) continue;
+
+//------------ make a loop to select first num photons
+      for(int n=1;n<=num;++n)
+      {
+        if(map[ip][it].size()==0) break; // this may happen if num > initial size of map[ip][it]
+        int I=0;
+        int n1st=map[ip][it][I];
+        for(int i=1;i<map[ip][it].size();++i)
+        {
+          if(t[map[ip][it][i]]<t[n1st])
+          {
+            n1st=map[ip][it][i];
+	    I=i;
+          }
+        }
+        ph_vec[n1st]=n;
+        map[ip][it].erase(map[ip][it].begin()+I);// current earlies is marked. remove it from futher consideartion
+
+      }
+//================
+
+    }
+
 
   return 0;
 }
+
+
 
 int FillIndex(char* fName)
 {

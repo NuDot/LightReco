@@ -8,6 +8,7 @@
 int run_reco(char* fInputName, char* fOutputName, int fRecoIt=0)
 {
   gInterpreter->LoadMacro("spherical_harmonics.C+");
+  gInterpreter->LoadMacro("invariants3D.C+");
   gInterpreter->LoadMacro("LightReco.C+");
   
   char fRecoName[200];
